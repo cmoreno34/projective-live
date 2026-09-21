@@ -69,6 +69,10 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
 .techpick{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 4px}
 .tp{border:1px solid var(--line);background:var(--ground);border-radius:999px;padding:8px 14px;font:600 13px Archivo;cursor:pointer;color:var(--ink)}
 .tp[aria-pressed="true"]{background:var(--leaf);border-color:var(--leaf);color:#fff}
+.suggest{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0;align-items:center}
+.suggest .lbl{font:700 10.5px Archivo;letter-spacing:.06em;text-transform:uppercase;color:var(--soft);margin-right:2px}
+.sg{border:1px dashed var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font:500 12.5px Archivo;cursor:pointer;color:var(--leaf-ink)}
+.sg:hover{border-style:solid;border-color:var(--leaf)}
 .hint{font-size:12.5px;color:var(--soft);margin:8px 0 0}
 .warn{font-size:12.5px;color:var(--clay);margin:8px 0 0}
 .big{font-size:16px}
@@ -108,6 +112,7 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
     <div class="techpick" id="techpick"></div>
     <label class="fl" for="stim" id="stimLabel">Stimulus</label>
     <input id="stim" placeholder="e.g. Zara">
+    <div class="suggest" id="suggest"></div>
     <p class="hint" id="techHint"></p>
     <div class="row">
       <button class="btn" id="btnOpen">Open a room</button>
@@ -186,7 +191,16 @@ $('#theme').onclick=()=>{const c=root.getAttribute('data-theme');root.setAttribu
 const tp=$('#techpick');
 Object.entries(TECHS).forEach(([k,t])=>{const b=document.createElement('button');b.className='tp';b.type='button';b.dataset.k=k;b.textContent=t.name;b.setAttribute('aria-pressed',k==='assoc');
   b.onclick=()=>{S.k=k;[...tp.children].forEach(x=>x.setAttribute('aria-pressed',x.dataset.k===k));syncTech();};tp.appendChild(b);});
-function syncTech(){const t=TECHS[S.k];$('#stimLabel').textContent=t.stimLabel;$('#stim').placeholder=t.ph;$('#techHint').textContent=t.hint;}
+const SUGGEST={
+  assoc:['Zara','Starbucks','Netflix','Nike','McDonald’s','Mercadona','Tesla'],
+  person:['Zara','Starbucks','Netflix','Apple','Ryanair','Nike'],
+  sentence:['A person who shops at Zara is someone who ___','People who use Netflix every night are ___','Someone who pays extra for Starbucks is ___','The kind of person who buys fast fashion is ___']
+};
+function syncTech(){const t=TECHS[S.k];$('#stimLabel').textContent=t.stimLabel;$('#stim').placeholder=t.ph;$('#techHint').textContent=t.hint;
+  const box=$('#suggest');box.innerHTML='<span class="lbl">Suggestions</span>';
+  (SUGGEST[S.k]||[]).forEach(s=>{const b=document.createElement('button');b.className='sg';b.type='button';b.textContent=S.k==='sentence'?(s.length>34?s.slice(0,32)+'…':s):s;b.title=s;
+    b.onclick=()=>{$('#stim').value=s;$('#stim').focus();};box.appendChild(b);});
+}
 syncTech();
 
 /* ---------- navigation ---------- */
