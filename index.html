@@ -91,17 +91,13 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
 <div id="landing">
   <p class="sub">A live, anonymous, in-class tool. The professor opens a room and projects the QR; students scan it, answer a projective prompt, and their answers build a <b>word cloud</b> or a <b>wall of sentences</b> in real time. No app, no login. Companion to practical <b>P05</b>.</p>
   <div class="roles">
-    <div class="rolecard">
-      <h2>Students — join</h2>
-      <p>Scan the QR on screen, or type the room code the professor reads out.</p>
-      <label class="fl" for="room">Room code</label>
-      <input id="room" maxlength="4" autocapitalize="characters" placeholder="K7F2" style="text-transform:uppercase">
-      <div class="row"><button class="btn" id="btnJoin">Join the room</button></div>
-    </div>
-    <div class="rolecard">
+    <div class="rolecard" style="max-width:560px">
       <h2>Professor — open a room</h2>
-      <p>Pick a technique, set the stimulus, open a room and project it. You can change the prompt live — students' screens follow.</p>
+      <p>Pick a technique, set the stimulus, open <b>one</b> room and project the QR. Students scan it to join. Keep the <b>same room</b> all session and push new prompts live — no reload, no new QR.</p>
       <div class="row"><button class="btn solid" id="btnTeacher">Teacher panel</button></div>
+      <details style="margin-top:14px"><summary class="hint" style="cursor:pointer">A student with no QR? enter the room code the professor reads out</summary>
+        <div class="row" style="margin-top:8px"><input id="room" maxlength="4" autocapitalize="characters" placeholder="K7F2" style="text-transform:uppercase;max-width:120px"><button class="btn" id="btnJoin">Join</button></div>
+      </details>
     </div>
   </div>
 </div>
@@ -109,6 +105,14 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
 <!-- TEACHER -->
 <div id="teacher" class="hide">
   <div class="card">
+    <div class="how" style="background:var(--sage);border:1px solid var(--line);border-radius:12px;padding:12px 15px;margin:0 0 14px;font-size:13px">
+      <b>How to run it (one room, many prompts):</b>
+      <ol style="margin:6px 0 0;padding-left:20px">
+        <li>Press <b>Open a room</b> once, and project the QR below.</li>
+        <li>Pick a technique + type the stimulus, then press <b>▶ Push to the room</b>. The prompt appears on every phone; answers build the cloud/wall live.</li>
+        <li>For the next question, just <b>change the technique or stimulus and press ▶ Push again</b> — same room, same QR, no reload. <b>Clear answers</b> wipes the board for a fresh round.</li>
+      </ol>
+    </div>
     <div class="techpick" id="techpick"></div>
     <label class="fl" for="stim" id="stimLabel">Stimulus</label>
     <input id="stim" placeholder="e.g. Zara">
@@ -116,7 +120,7 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
     <p class="hint" id="techHint"></p>
     <div class="row">
       <button class="btn" id="btnOpen">Open a room</button>
-      <button class="btn ghost hide" id="btnSend">Show this prompt to the room</button>
+      <button class="btn solid hide" id="btnSend">▶ Push to the room</button>
       <button class="btn ghost hide" id="btnClear">Clear answers</button>
       <button class="btn ghost" id="btnBack">← Back</button>
     </div>
@@ -130,7 +134,7 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
     <div class="qrbox">
       <div class="qr" id="qr"></div>
       <div><div class="hint">Direct link</div><div class="joinurl" id="joinurl"></div>
-        <p class="hint">Same room, any prompt: change the technique or stimulus above and press <b>Show this prompt</b> — the screens update. Nothing is stored after class.</p></div>
+        <p class="hint"><b>This QR stays the same all session.</b> Change the technique/stimulus above and press <b>▶ Push to the room</b> for each new question — students don't rescan. Nothing is stored after class.</p></div>
     </div>
   </div>
 
