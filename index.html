@@ -224,13 +224,15 @@ $('#btnOpen').onclick=()=>{
   $('#codeOut').textContent=code;
   const url=location.href.split('#')[0]+'#room='+code; $('#joinurl').textContent=url; drawQR(url);
 };
-$('#btnSend').onclick=()=>{
+function flash(btn,txt){const o=btn.getAttribute('data-lbl')||btn.textContent;btn.setAttribute('data-lbl',o);btn.blur();btn.textContent=txt;setTimeout(()=>{btn.textContent=o;},1100);}
+$('#btnSend').onclick=(e)=>{
   curK=S.k; curQ=$('#stim').value.trim(); curR=Date.now();
   LIVE.clear(); renderBoard();
   post({ctrl:1,k:curK,q:curQ,r:curR});
   renderBoardHeader();
+  flash(e.currentTarget,'Pushed ✓');
 };
-$('#btnClear').onclick=()=>{LIVE.clear();curR=Date.now();post({ctrl:1,k:curK,q:curQ,r:curR});renderBoard();};
+$('#btnClear').onclick=(e)=>{LIVE.clear();curR=Date.now();post({ctrl:1,k:curK,q:curQ,r:curR});renderBoard();flash(e.currentTarget,'Cleared ✓');};
 
 function startTeacher(code){
   if(es){es.close();es=null;} const t=topicOf(code);
