@@ -214,7 +214,12 @@ let S={uid:Math.random().toString(36).slice(2,10),role:null,room:'',k:'assoc',q:
 const LIVE=new Map();      // uid -> {v}
 let es=null, esList=[], curK='assoc', curQ='', curR=0;
 function closeAll(){esList.forEach(e=>{try{e.close();}catch(x){}});esList=[];if(es){try{es.close();}catch(x){}es=null;}}
-function pollAll(t){return Promise.allSettled(NTFY_SERVERS.map(sv=>fetch(sv+t+'/json?poll=1&since=all').then(r=>r.text()))).then(rs=>rs.filter(r=>r.status==='fulfilled').map(r=>r.value).join('\n'));}
+function tfetch(url,opts,ms){const c=new AbortController();const id=setTimeout(()=>c.abort(),ms||4000);
+  return fetch(url,Object.assign({},opts||{},{signal:c.signal})).then(r=>{clearTimeout(id);return r;},e=>{clearTimeout(id);throw e;});}
+const COLD={};                                  // a server that just failed is skipped for a minute
+function live(){const now=Date.now();const ok=NTFY_SERVERS.filter(s=>!COLD[s]||now-COLD[s]>60000);return ok.length?ok:NTFY_SERVERS;}
+function mark(s,good){if(good)delete COLD[s];else COLD[s]=Date.now();}
+function pollAll(t){return Promise.allSettled(live().map(sv=>tfetch(sv+t+'/json?poll=1&since=all',null,3500).then(r=>{mark(sv,true);return r.text();},e=>{mark(sv,false);throw e;}))).then(rs=>rs.filter(r=>r.status==='fulfilled').map(r=>r.value).join('\n'));}
 
 /* ---------- theme ---------- */
 const root=document.documentElement;
@@ -245,8 +250,7 @@ function show(which){['landing','teacher','student'].forEach(id=>$('#'+id).class
 function drawQR(url){const box=$('#qr');try{const qr=qrcode(0,'M');qr.addData(url);qr.make();box.innerHTML=qr.createSvgTag({cellSize:6,margin:0,scalable:true});}catch(e){box.innerHTML='<div class="hint" style="padding:8px">Read the code aloud.</div>';}}
 
 /* ---------- teacher: open room ---------- */
-$('#btnOpen').onclick=async ()=>{
-  await pickServer(null);
+$('#btnOpen').onclick=()=>{
   const code=(Math.random().toString(36).slice(2,6)).toUpperCase().replace(/[^A-Z0-9]/g,'X');
   S.room=code; startTeacher(code);
   $('#roomCard').classList.remove('hide'); $('#boardCard').classList.remove('hide');
@@ -310,7 +314,7 @@ function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','
 $('#btnJoin').onclick=()=>joinRoom($('#room').value);
 function roomFromUrl(){const m=location.hash.match(/room=([A-Za-z0-9]{3,6})/);return m?m[1].toUpperCase():'';}
 async function joinRoom(code){
-  if(!ntfyPicked) await pickServer(serverFromUrl());code=String(code||'').toUpperCase().trim();if(!code){$('#room').focus();return;}
+code=String(code||'').toUpperCase().trim();if(!code){$('#room').focus();return;}
   S.role='student';S.room=code;show('student');$('#stuCode').textContent=code;
   const t=topicOf(code);
   closeAll();
@@ -334,20 +338,23 @@ $('#btnSubmit').onclick=()=>{
   post({u:S.uid,r:curR,v},()=>{$('#stuStatus').textContent='Sent ✓  (you can change it and send again)';});
 };
 
-/* ---------- publish: to every server at once (each rate-limits per IP) ---------- */
+/* ---------- publish: whichever server answers first wins ---------- */
 function post(obj,ok){
   const body=JSON.stringify(obj); const t=topicOf(S.room);
   let attempts=0, finished=false;
   const say=(m)=>{const el=$('#stuStatus'); if(el&&S.role==='student') el.textContent=m;};
-  const round=()=>{
+  const round=()=>new Promise(res=>{
     attempts++;
-    return Promise.allSettled(NTFY_SERVERS.map(sv=>fetch(sv+t,{method:'POST',body})))
-      .then(rs=>{
-        if(rs.some(r=>r.status==='fulfilled'&&r.value&&r.value.ok)){ if(!finished){finished=true; if(ok)ok();} return; }
-        if(attempts<6){ say('The room is busy, still sending... ('+attempts+')'); setTimeout(round,2500+Math.random()*2500); }
-        else { say('Could not send. Wait a few seconds and press send again.'); }
-      });
-  };
+    let settled=false;
+    const tries=live().map(sv=>tfetch(sv+t,{method:'POST',body},4000)
+      .then(r=>{const good=r&&r.ok;mark(sv,good);if(good&&!settled){settled=true;res(true);}return good;},
+            e=>{mark(sv,false);return false;}));
+    Promise.allSettled(tries).then(()=>{if(!settled){settled=true;res(false);}});
+  }).then(good=>{
+    if(good){ if(!finished){finished=true; if(ok)ok();} return; }
+    if(attempts<6){ say('The room is busy, still sending... ('+attempts+')'); setTimeout(round,2000+Math.random()*2000); }
+    else { say('Could not send. Wait a few seconds and press send again.'); }
+  });
   round();
 }
 
