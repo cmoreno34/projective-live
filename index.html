@@ -4,6 +4,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Archivo:wght@400;500;600;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script>
 /* QRLIB:BEGIN qrcode-generator 1.4.4, MIT, Kazuhiko Arase - inlined so the room needs no CDN */
 /**
@@ -246,6 +247,40 @@ $('#btnTeacher').onclick=()=>{show('teacher');S.role='teacher';};
 $('#btnBack').onclick=()=>{closeAll();show('landing');};
 function show(which){['landing','teacher','student'].forEach(id=>$('#'+id).classList.toggle('hide',id!==which));}
 
+
+/* ---------- MQTT: the transport a class can use (public brokers, no account) ---------- */
+const MQTT_URLS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+let mq=null, mqReady=false, mqUrl='';
+const mqTopic=c=>'mkt3600proj/'+String(c||'').trim().toUpperCase();
+
+function mqState(){return mqReady?('live on '+mqUrl.split('//')[1].split(':')[0]):'connecting...';}
+
+function mqConnect(code,onMsg){
+  if(mq){try{mq.end(true);}catch(e){} mq=null; mqReady=false;}
+  if(typeof mqtt==='undefined') return;                 // library blocked: ntfy carries it
+  let i=0;
+  const tryNext=()=>{
+    if(i>=MQTT_URLS.length) return;
+    const url=MQTT_URLS[i++];
+    let c;
+    try{ c=mqtt.connect(url,{clientId:'mkt-'+Math.random().toString(16).slice(2),keepalive:30,
+        reconnectPeriod:0,connectTimeout:6000,clean:true}); }catch(e){ return tryNext(); }
+    const giveUp=setTimeout(()=>{ if(!mqReady){ try{c.end(true);}catch(e){} tryNext(); } },7000);
+    c.on('connect',()=>{ clearTimeout(giveUp); mq=c; mqReady=true; mqUrl=url;
+      try{ c.subscribe(mqTopic(code),{qos:0}); }catch(e){} });
+    c.on('message',(t,payload)=>{ try{ onMsg(payload.toString()); }catch(e){} });
+    c.on('error',()=>{ clearTimeout(giveUp); if(!mqReady){ try{c.end(true);}catch(e){} tryNext(); } });
+    c.on('close',()=>{ if(mq===c){ mqReady=false; mq=null; setTimeout(()=>mqConnect(code,onMsg),1500); } });
+  };
+  tryNext();
+}
+
+function mqPublish(obj){
+  if(!mq||!mqReady) return false;
+  try{ mq.publish(mqTopic(S.room),JSON.stringify(obj),{qos:0,retain:!!obj.ctrl}); return true; }
+  catch(e){ return false; }
+}
+
 /* ---------- QR ---------- */
 function drawQR(url){const box=$('#qr');try{const qr=qrcode(0,'M');qr.addData(url);qr.make();box.innerHTML=qr.createSvgTag({cellSize:6,margin:0,scalable:true});}catch(e){box.innerHTML='<div class="hint" style="padding:8px">Read the code aloud.</div>';}}
 
@@ -270,6 +305,7 @@ $('#btnClear').onclick=(e)=>{LIVE.clear();curR=Date.now();const btn=e.currentTar
 
 function startTeacher(code){
   closeAll(); const t=topicOf(code);
+  mqConnect(code,raw=>{ if(absorb(raw)){renderBoard();updateCount();} });
   pollAll(t).then(txt=>{txt.trim().split('\n').forEach(l=>{try{const d=JSON.parse(l);if(d.event==='message')absorb(d.message);}catch(e){}});renderBoard();updateCount();}).catch(()=>{});
   es=new EventSource(NTFY+t+'/sse');NTFY_SERVERS.filter(x=>x!==NTFY).forEach(sv=>{try{const e2=new EventSource(sv+t+'/sse');e2.onmessage=ev=>{try{es.onmessage(ev);}catch(x){}};esList.push(e2);}catch(x){}});
   es.onmessage=ev=>{try{const d=JSON.parse(ev.data);if(d.event==='message'&&absorb(d.message)){renderBoard();updateCount();}}catch(e){}};
@@ -318,6 +354,7 @@ code=String(code||'').toUpperCase().trim();if(!code){$('#room').focus();return;}
   S.role='student';S.room=code;show('student');$('#stuCode').textContent=code;
   const t=topicOf(code);
   closeAll();
+  mqConnect(code,raw=>{ absorb(raw); });
   pollAll(t).then(txt=>{let last=null;txt.trim().split('\n').forEach(l=>{try{const d=JSON.parse(l);if(d.event==='message'){const m=JSON.parse(d.message);if(m.ctrl&&(!last||m.r>=last.r))last=m;}}catch(e){}});if(last){curK=last.k;curQ=last.q;curR=last.r;renderStudentPrompt();}}).catch(()=>{});
   es=new EventSource(NTFY+t+'/sse');NTFY_SERVERS.filter(x=>x!==NTFY).forEach(sv=>{try{const e2=new EventSource(sv+t+'/sse');e2.onmessage=ev=>{try{es.onmessage(ev);}catch(x){}};esList.push(e2);}catch(x){}});
   es.onmessage=ev=>{try{const d=JSON.parse(ev.data);if(d.event==='message')absorb(d.message);}catch(e){}};
@@ -338,13 +375,18 @@ $('#btnSubmit').onclick=()=>{
   post({u:S.uid,r:curR,v},()=>{$('#stuStatus').textContent='Sent ✓  (you can change it and send again)';});
 };
 
-/* ---------- publish: whichever server answers first wins ---------- */
+/* ---------- publish: MQTT if it is up, ntfy as the backup ---------- */
 function post(obj,ok){
   const body=JSON.stringify(obj); const t=topicOf(S.room);
-  let attempts=0, finished=false;
   const say=(m)=>{const el=$('#stuStatus'); if(el&&S.role==='student') el.textContent=m;};
+  if(mqPublish(obj)){ if(ok)ok();
+    // one best-effort copy over ntfy, so a phone still on the old page keeps up
+    try{ live().forEach(sv=>tfetch(sv+t,{method:'POST',body},4000).catch(()=>{})); }catch(e){}
+    return; }
+  let attempts=0, finished=false;
   const round=()=>new Promise(res=>{
     attempts++;
+    if(mqPublish(obj)){ res(true); return; }          // it may have connected meanwhile
     let settled=false;
     const tries=live().map(sv=>tfetch(sv+t,{method:'POST',body},4000)
       .then(r=>{const good=r&&r.ok;mark(sv,good);if(good&&!settled){settled=true;res(true);}return good;},
