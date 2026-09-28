@@ -163,7 +163,34 @@ label.fl{display:block;font:700 11px Archivo;letter-spacing:.06em;text-transform
 
 <script>
 const $=s=>document.querySelector(s);
-const NTFY='https://ntfy.sh/';
+const NTFY_SERVERS = ['https://ntfy.sh/', 'https://ntfy.envs.net/', 'https://ntfy.adminforge.de/'];
+let NTFY = NTFY_SERVERS[0];
+let ntfyPicked = false;
+
+function ntfyIndex() { return Math.max(0, NTFY_SERVERS.indexOf(NTFY)); }
+
+function serverFromUrl() {                     // the QR carries the server the professor is on
+  const m = location.hash.match(/[#&]s=(\d)/);
+  return m ? Number(m[1]) : null;
+}
+
+async function pickServer(preferred) {         // first one that answers wins
+  const order = [];
+  if (preferred !== null && preferred !== undefined && NTFY_SERVERS[preferred]) order.push(NTFY_SERVERS[preferred]);
+  NTFY_SERVERS.forEach((s) => { if (!order.includes(s)) order.push(s); });
+  for (const s of order) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 4000);
+      const r = await fetch(s + 'mf26ping/json?poll=1&since=latest', { signal: c.signal, cache: 'no-store' });
+      clearTimeout(t);
+      if (r.ok) { NTFY = s; ntfyPicked = true; return s; }
+    } catch (e) { /* next one */ }
+  }
+  ntfyPicked = false;
+  return null;
+}
+
 const topicOf=c=>'mkt3600proj-'+String(c).trim().toUpperCase();
 const PAL=['--c1','--c2','--c3','--c4','--c5','--leaf','--clay'];
 const TECHS={
@@ -216,13 +243,14 @@ function show(which){['landing','teacher','student'].forEach(id=>$('#'+id).class
 function drawQR(url){const box=$('#qr');try{const qr=qrcode(0,'M');qr.addData(url);qr.make();box.innerHTML=qr.createSvgTag({cellSize:6,margin:0,scalable:true});}catch(e){box.innerHTML='<div class="hint" style="padding:8px">Read the code aloud.</div>';}}
 
 /* ---------- teacher: open room ---------- */
-$('#btnOpen').onclick=()=>{
+$('#btnOpen').onclick=async ()=>{
+  await pickServer(null);
   const code=(Math.random().toString(36).slice(2,6)).toUpperCase().replace(/[^A-Z0-9]/g,'X');
   S.room=code; startTeacher(code);
   $('#roomCard').classList.remove('hide'); $('#boardCard').classList.remove('hide');
   $('#btnSend').classList.remove('hide'); $('#btnClear').classList.remove('hide'); $('#btnOpen').classList.add('hide');
   $('#codeOut').textContent=code;
-  const url=location.href.split('#')[0]+'#room='+code; $('#joinurl').textContent=url; drawQR(url);
+  const url=location.href.split('#')[0]+'#room='+code+'&s='+ntfyIndex(); $('#joinurl').textContent=url; drawQR(url);
 };
 function flash(btn,txt){const o=btn.getAttribute('data-lbl')||btn.textContent;btn.setAttribute('data-lbl',o);btn.blur();btn.textContent=txt;setTimeout(()=>{btn.textContent=o;},1100);}
 $('#btnSend').onclick=(e)=>{
@@ -279,7 +307,8 @@ function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','
 /* ---------- student ---------- */
 $('#btnJoin').onclick=()=>joinRoom($('#room').value);
 function roomFromUrl(){const m=location.hash.match(/room=([A-Za-z0-9]{3,6})/);return m?m[1].toUpperCase():'';}
-function joinRoom(code){code=String(code||'').toUpperCase().trim();if(!code){$('#room').focus();return;}
+async function joinRoom(code){
+  if(!ntfyPicked) await pickServer(serverFromUrl());code=String(code||'').toUpperCase().trim();if(!code){$('#room').focus();return;}
   S.role='student';S.room=code;show('student');$('#stuCode').textContent=code;
   const t=topicOf(code);
   if(es){es.close();es=null;}
@@ -305,7 +334,11 @@ $('#btnSubmit').onclick=()=>{
 
 /* ---------- ntfy publish, with 429 backoff ---------- */
 function post(obj,ok){const body=JSON.stringify(obj);const t=topicOf(S.room);
-  const go=()=>fetch(NTFY+t,{method:'POST',body}).then(r=>{if(r.status===429){setTimeout(go,3000+Math.random()*3000);return;}if(ok)ok();}).catch(()=>{if(ok)$('#stuStatus').textContent='Offline — try again.';});go();}
+  let tried=false;
+  const go=()=>fetch(NTFY+t,{method:'POST',body}).then(r=>{if(r.status===429){setTimeout(go,3000+Math.random()*3000);return;}if(ok)ok();})
+    .catch(async ()=>{ if(!tried){tried=true; const s=await pickServer(null); if(s) return go(); }
+      $('#stuStatus').textContent='The live server is not answering. Tell the professor.'; });
+  go();}
 
 /* ---------- boot ---------- */
 (function(){const rc=roomFromUrl();if(rc){$('#room').value=rc;joinRoom(rc);}})();
