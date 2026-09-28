@@ -235,7 +235,7 @@ const SUGGEST={
   person:['Zara','Starbucks','Netflix','Apple','Ryanair','Nike'],
   sentence:['A person who shops at Zara is someone who ___','People who use Netflix every night are ___','Someone who pays extra for Starbucks is ___','The kind of person who buys fast fashion is ___']
 };
-function syncTech(){const t=TECHS[S.k];$('#stimLabel').textContent=t.stimLabel;$('#stim').placeholder=t.ph;$('#techHint').textContent=t.hint;
+function syncTech(){ sendState('idle');const t=TECHS[S.k];$('#stimLabel').textContent=t.stimLabel;$('#stim').placeholder=t.ph;$('#techHint').textContent=t.hint;
   const box=$('#suggest');box.innerHTML='<span class="lbl">Suggestions</span>';
   (SUGGEST[S.k]||[]).forEach(s=>{const b=document.createElement('button');b.className='sg';b.type='button';b.textContent=S.k==='sentence'?(s.length>34?s.slice(0,32)+'…':s):s;b.title=s;
     b.onclick=()=>{$('#stim').value=s;$('#stim').focus();};box.appendChild(b);});
@@ -294,11 +294,21 @@ $('#btnOpen').onclick=()=>{
   const url=location.href.split('#')[0]+'#room='+code+'&s='+ntfyIndex(); $('#joinurl').textContent=url; drawQR(url);
 };
 function flash(btn,txt){const o=btn.getAttribute('data-lbl')||btn.textContent;btn.setAttribute('data-lbl',o);btn.blur();btn.textContent=txt;setTimeout(()=>{btn.textContent=o;},1100);}
+
+/* ---------- the Push button keeps its state ---------- */
+const SEND_LABEL='\u25b6 Push to the room';
+function sendState(st){
+  const b=$('#btnSend'); if(!b) return;
+  if(st==='sending'){ b.disabled=true; b.textContent='Sending...'; b.style.opacity='.75'; }
+  else if(st==='sent'){ b.disabled=true; b.textContent='\u2713 Pushed \u00b7 edit the stimulus to push again'; b.style.opacity='.75'; }
+  else { b.disabled=false; b.textContent='▶ Push to the room'; b.style.opacity=''; }
+}
+
 $('#btnSend').onclick=(e)=>{
   curK=S.k; curQ=$('#stim').value.trim(); curR=Date.now();
   LIVE.clear(); renderBoard();
-  const btn=e.currentTarget; flash(btn,'Sending...');
-  post({ctrl:1,k:curK,q:curQ,r:curR},()=>flash(btn,'Pushed ✓'));
+  sendState('sending');
+  post({ctrl:1,k:curK,q:curQ,r:curR},()=>sendState('sent'));
   renderBoardHeader();
 };
 $('#btnClear').onclick=(e)=>{LIVE.clear();curR=Date.now();const btn=e.currentTarget;flash(btn,'Clearing...');post({ctrl:1,k:curK,q:curQ,r:curR},()=>flash(btn,'Cleared ✓'));renderBoard();};
@@ -399,6 +409,8 @@ function post(obj,ok){
   });
   round();
 }
+
+$('#stim').addEventListener('input',()=>sendState('idle'));
 
 /* ---------- boot ---------- */
 (function(){const rc=roomFromUrl();if(rc){$('#room').value=rc;joinRoom(rc);}})();
