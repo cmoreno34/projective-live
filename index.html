@@ -212,7 +212,9 @@ const TECHS={
 };
 let S={uid:Math.random().toString(36).slice(2,10),role:null,room:'',k:'assoc',q:'',r:0};
 const LIVE=new Map();      // uid -> {v}
-let es=null, curK='assoc', curQ='', curR=0;
+let es=null, esList=[], curK='assoc', curQ='', curR=0;
+function closeAll(){esList.forEach(e=>{try{e.close();}catch(x){}});esList=[];if(es){try{es.close();}catch(x){}es=null;}}
+function pollAll(t){return Promise.allSettled(NTFY_SERVERS.map(sv=>fetch(sv+t+'/json?poll=1&since=all').then(r=>r.text()))).then(rs=>rs.filter(r=>r.status==='fulfilled').map(r=>r.value).join('\n'));}
 
 /* ---------- theme ---------- */
 const root=document.documentElement;
@@ -236,7 +238,7 @@ syncTech();
 
 /* ---------- navigation ---------- */
 $('#btnTeacher').onclick=()=>{show('teacher');S.role='teacher';};
-$('#btnBack').onclick=()=>{if(es){es.close();es=null;}show('landing');};
+$('#btnBack').onclick=()=>{closeAll();show('landing');};
 function show(which){['landing','teacher','student'].forEach(id=>$('#'+id).classList.toggle('hide',id!==which));}
 
 /* ---------- QR ---------- */
@@ -256,16 +258,16 @@ function flash(btn,txt){const o=btn.getAttribute('data-lbl')||btn.textContent;bt
 $('#btnSend').onclick=(e)=>{
   curK=S.k; curQ=$('#stim').value.trim(); curR=Date.now();
   LIVE.clear(); renderBoard();
-  post({ctrl:1,k:curK,q:curQ,r:curR});
+  const btn=e.currentTarget; flash(btn,'Sending...');
+  post({ctrl:1,k:curK,q:curQ,r:curR},()=>flash(btn,'Pushed ✓'));
   renderBoardHeader();
-  flash(e.currentTarget,'Pushed ✓');
 };
-$('#btnClear').onclick=(e)=>{LIVE.clear();curR=Date.now();post({ctrl:1,k:curK,q:curQ,r:curR});renderBoard();flash(e.currentTarget,'Cleared ✓');};
+$('#btnClear').onclick=(e)=>{LIVE.clear();curR=Date.now();const btn=e.currentTarget;flash(btn,'Clearing...');post({ctrl:1,k:curK,q:curQ,r:curR},()=>flash(btn,'Cleared ✓'));renderBoard();};
 
 function startTeacher(code){
-  if(es){es.close();es=null;} const t=topicOf(code);
-  fetch(NTFY+t+'/json?poll=1&since=all').then(r=>r.text()).then(txt=>{txt.trim().split('\n').forEach(l=>{try{const d=JSON.parse(l);if(d.event==='message')absorb(d.message);}catch(e){}});renderBoard();updateCount();}).catch(()=>{});
-  es=new EventSource(NTFY+t+'/sse');
+  closeAll(); const t=topicOf(code);
+  pollAll(t).then(txt=>{txt.trim().split('\n').forEach(l=>{try{const d=JSON.parse(l);if(d.event==='message')absorb(d.message);}catch(e){}});renderBoard();updateCount();}).catch(()=>{});
+  es=new EventSource(NTFY+t+'/sse');NTFY_SERVERS.filter(x=>x!==NTFY).forEach(sv=>{try{const e2=new EventSource(sv+t+'/sse');e2.onmessage=ev=>{try{es.onmessage(ev);}catch(x){}};esList.push(e2);}catch(x){}});
   es.onmessage=ev=>{try{const d=JSON.parse(ev.data);if(d.event==='message'&&absorb(d.message)){renderBoard();updateCount();}}catch(e){}};
 }
 function updateCount(){const n=LIVE.size;$('#countOut').textContent=n?`${n} answer${n>1?'s':''} in`:'nobody yet';}
@@ -311,9 +313,9 @@ async function joinRoom(code){
   if(!ntfyPicked) await pickServer(serverFromUrl());code=String(code||'').toUpperCase().trim();if(!code){$('#room').focus();return;}
   S.role='student';S.room=code;show('student');$('#stuCode').textContent=code;
   const t=topicOf(code);
-  if(es){es.close();es=null;}
-  fetch(NTFY+t+'/json?poll=1&since=all').then(r=>r.text()).then(txt=>{let last=null;txt.trim().split('\n').forEach(l=>{try{const d=JSON.parse(l);if(d.event==='message'){const m=JSON.parse(d.message);if(m.ctrl&&(!last||m.r>=last.r))last=m;}}catch(e){}});if(last){curK=last.k;curQ=last.q;curR=last.r;renderStudentPrompt();}}).catch(()=>{});
-  es=new EventSource(NTFY+t+'/sse');
+  closeAll();
+  pollAll(t).then(txt=>{let last=null;txt.trim().split('\n').forEach(l=>{try{const d=JSON.parse(l);if(d.event==='message'){const m=JSON.parse(d.message);if(m.ctrl&&(!last||m.r>=last.r))last=m;}}catch(e){}});if(last){curK=last.k;curQ=last.q;curR=last.r;renderStudentPrompt();}}).catch(()=>{});
+  es=new EventSource(NTFY+t+'/sse');NTFY_SERVERS.filter(x=>x!==NTFY).forEach(sv=>{try{const e2=new EventSource(sv+t+'/sse');e2.onmessage=ev=>{try{es.onmessage(ev);}catch(x){}};esList.push(e2);}catch(x){}});
   es.onmessage=ev=>{try{const d=JSON.parse(ev.data);if(d.event==='message')absorb(d.message);}catch(e){}};
 }
 function renderStudentPrompt(){
@@ -332,13 +334,22 @@ $('#btnSubmit').onclick=()=>{
   post({u:S.uid,r:curR,v},()=>{$('#stuStatus').textContent='Sent ✓  (you can change it and send again)';});
 };
 
-/* ---------- ntfy publish, with 429 backoff ---------- */
-function post(obj,ok){const body=JSON.stringify(obj);const t=topicOf(S.room);
-  let tried=false;
-  const go=()=>fetch(NTFY+t,{method:'POST',body}).then(r=>{if(r.status===429){setTimeout(go,3000+Math.random()*3000);return;}if(ok)ok();})
-    .catch(async ()=>{ if(!tried){tried=true; const s=await pickServer(null); if(s) return go(); }
-      $('#stuStatus').textContent='The live server is not answering. Tell the professor.'; });
-  go();}
+/* ---------- publish: to every server at once (each rate-limits per IP) ---------- */
+function post(obj,ok){
+  const body=JSON.stringify(obj); const t=topicOf(S.room);
+  let attempts=0, finished=false;
+  const say=(m)=>{const el=$('#stuStatus'); if(el&&S.role==='student') el.textContent=m;};
+  const round=()=>{
+    attempts++;
+    return Promise.allSettled(NTFY_SERVERS.map(sv=>fetch(sv+t,{method:'POST',body})))
+      .then(rs=>{
+        if(rs.some(r=>r.status==='fulfilled'&&r.value&&r.value.ok)){ if(!finished){finished=true; if(ok)ok();} return; }
+        if(attempts<6){ say('The room is busy, still sending... ('+attempts+')'); setTimeout(round,2500+Math.random()*2500); }
+        else { say('Could not send. Wait a few seconds and press send again.'); }
+      });
+  };
+  round();
+}
 
 /* ---------- boot ---------- */
 (function(){const rc=roomFromUrl();if(rc){$('#room').value=rc;joinRoom(rc);}})();
